@@ -39,10 +39,9 @@ struct CalendarToolsTests {
     }
 
     @Test func updateEventToolWaitsForConfirmationBeforeCallingService() async throws {
-        // @unchecked Sendable: only mutated inside `updateEvent`, which the test awaits
-        // to completion (via `result`) before ever reading `updateCalled` — no concurrent
-        // access, same pattern as `StubCalendarService` above. Safe as a test double.
-        final class RecordingService: GoogleCalendarServicing, @unchecked Sendable {
+        // Implemented as an actor to satisfy strict concurrency: actors are implicitly Sendable.
+        // The single read of `updateCalled` (line 70) awaits after `updateEvent` completes.
+        actor RecordingService: GoogleCalendarServicing {
             private(set) var updateCalled = false
             func listEvents(from: Date, to: Date) async throws -> [CalendarEvent] { [] }
             func createEvent(title: String, startDate: Date, endDate: Date) async throws -> CalendarEvent {
@@ -67,7 +66,7 @@ struct CalendarToolsTests {
 
         let text = try await result
         #expect(text.contains("완료"))
-        #expect(service.updateCalled == true)
+        #expect(await service.updateCalled == true)
     }
 
     @Test func updateEventToolSkipsServiceCallWhenUserCancels() async throws {
