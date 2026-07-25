@@ -1,6 +1,6 @@
 import Foundation
 
-protocol GoogleCalendarServicing {
+protocol GoogleCalendarServicing: Sendable {
     func listEvents(from startDate: Date, to endDate: Date) async throws -> [CalendarEvent]
     func createEvent(title: String, startDate: Date, endDate: Date) async throws -> CalendarEvent
     func updateEvent(id: String, title: String, startDate: Date, endDate: Date) async throws -> CalendarEvent
@@ -12,7 +12,7 @@ enum CalendarServiceError: Error, Equatable {
     case decodingFailed
 }
 
-final class GoogleCalendarService: GoogleCalendarServicing {
+final class GoogleCalendarService: GoogleCalendarServicing, @unchecked Sendable {
     private let tokenProvider: () async throws -> String
     private let httpClient: HTTPClient
     private let baseURL = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
