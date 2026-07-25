@@ -1,5 +1,12 @@
 import Foundation
-import UserNotifications
+// `UserNotifications` is an unaudited ObjC framework (`UNUserNotificationCenter`
+// carries no Sendable annotation in the SDK header). `@preconcurrency` is
+// the sanctioned way to interop with such a module when asserting our own
+// type's Sendable conformance below — it downgrades Sendable-related
+// diagnostics about `UNUserNotificationCenter` at this framework boundary
+// instead of forcing an `@unchecked` escape hatch on `NotificationScheduler`
+// itself.
+@preconcurrency import UserNotifications
 
 enum NotificationContentBuilder {
     static func dailyAgendaText(todayEvents: [CalendarEvent], tomorrowEvents: [CalendarEvent]) -> String {
@@ -13,7 +20,13 @@ enum NotificationContentBuilder {
     }
 }
 
-final class NotificationScheduler {
+/// Genuinely `Sendable` (not `@unchecked`): its only stored property,
+/// `center`, is an immutable `let` of `UNUserNotificationCenter` — a
+/// framework singleton accessor whose documented usage pattern (call its
+/// methods from any context) is exactly what `@preconcurrency import
+/// UserNotifications` above lets the compiler accept for this
+/// conformance, since the framework itself predates Sendable auditing.
+final class NotificationScheduler: Sendable {
     private let center: UNUserNotificationCenter
     private static let identifier = "daily-agenda"
 
