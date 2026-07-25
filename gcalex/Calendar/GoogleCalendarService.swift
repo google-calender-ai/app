@@ -44,7 +44,7 @@ final class GoogleCalendarService: GoogleCalendarServicing {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.encode(
-            GoogleEventPayload(summary: title, start: .init(dateTime: isoFormatter.string(from: startDate)), end: .init(dateTime: isoFormatter.string(from: endDate)))
+            GoogleEventPayload(summary: title, start: .init(dateTime: isoFormatter.string(from: startDate), date: nil), end: .init(dateTime: isoFormatter.string(from: endDate), date: nil))
         )
         let (data, response) = try await send(request)
         try Self.checkStatus(response)
@@ -57,7 +57,7 @@ final class GoogleCalendarService: GoogleCalendarServicing {
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.encode(
-            GoogleEventPayload(summary: title, start: .init(dateTime: isoFormatter.string(from: startDate)), end: .init(dateTime: isoFormatter.string(from: endDate)))
+            GoogleEventPayload(summary: title, start: .init(dateTime: isoFormatter.string(from: startDate), date: nil), end: .init(dateTime: isoFormatter.string(from: endDate), date: nil))
         )
         let (data, response) = try await send(request)
         try Self.checkStatus(response)
@@ -99,13 +99,29 @@ final class GoogleCalendarService: GoogleCalendarServicing {
     }
 
     private static func toCalendarEvent(_ item: GoogleEventItem) -> CalendarEvent {
-        let formatter = ISO8601DateFormatter()
-        return CalendarEvent(
+        CalendarEvent(
             id: item.id,
             title: item.summary,
-            startDate: formatter.date(from: item.start.dateTime) ?? Date(),
-            endDate: formatter.date(from: item.end.dateTime) ?? Date()
+            startDate: resolveDate(item.start),
+            endDate: resolveDate(item.end)
         )
+    }
+
+    private static func resolveDate(_ dateTime: GoogleEventDateTime) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let raw = dateTime.dateTime, let parsed = isoFormatter.date(from: raw) {
+            return parsed
+        }
+        if let raw = dateTime.date {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "yyyy-MM-dd"
+            dayFormatter.timeZone = .current
+            dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+            if let parsed = dayFormatter.date(from: raw) {
+                return parsed
+            }
+        }
+        return Date()
     }
 }
 
@@ -121,7 +137,8 @@ private struct GoogleEventItem: Codable {
 }
 
 private struct GoogleEventDateTime: Codable {
-    let dateTime: String
+    let dateTime: String?
+    let date: String?
 }
 
 private struct GoogleEventPayload: Encodable {

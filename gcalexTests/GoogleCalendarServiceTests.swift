@@ -98,4 +98,26 @@ struct GoogleCalendarServiceTests {
         #expect(mock.lastRequest?.httpMethod == "DELETE")
         #expect(mock.lastRequest?.url?.absoluteString.hasSuffix("/evt1") == true)
     }
+
+    @Test func listEventsHandlesAllDayEventsWithoutThrowing() async throws {
+        let mock = MockHTTPClient()
+        mock.nextData = """
+        {
+          "items": [
+            {
+              "id": "evt-holiday",
+              "summary": "공휴일",
+              "start": { "date": "2026-07-25" },
+              "end": { "date": "2026-07-26" }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let service = GoogleCalendarService(tokenProvider: { "t" }, httpClient: mock)
+        let events = try await service.listEvents(from: Date(), to: Date())
+
+        #expect(events.first?.id == "evt-holiday")
+        #expect(events.first?.title == "공휴일")
+    }
 }
