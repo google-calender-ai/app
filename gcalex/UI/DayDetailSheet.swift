@@ -38,6 +38,7 @@ struct DayDetailSheet: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 .frame(maxHeight: 200)
             }
 
@@ -45,6 +46,7 @@ struct DayDetailSheet: View {
 
             ChatView(chatEngine: chatEngine)
         }
+        .glassEffect(in: RoundedRectangle(cornerRadius: 24))
         .onDisappear {
             // If the sheet is dismissed while a destructive-action confirmation
             // is still pending, resolve it as cancelled. Otherwise the stored
