@@ -13,8 +13,10 @@ struct ChatView: View {
                             if message.role == .assistant { Spacer(minLength: 0) }
                             Text(message.text)
                                 .padding(10)
-                                .background(message.role == .user ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
-                                .cornerRadius(12)
+                                .glassEffect(
+                                    message.role == .user ? .regular.tint(.blue) : .regular,
+                                    in: RoundedRectangle(cornerRadius: 12)
+                                )
                             if message.role == .user { Spacer(minLength: 0) }
                         }
                     }
@@ -30,14 +32,15 @@ struct ChatView: View {
                         Button("취소", role: .cancel) {
                             chatEngine.confirmationCenter.resolve(false)
                         }
+                        .buttonStyle(.glass)
                         Button("확인") {
                             chatEngine.confirmationCenter.resolve(true)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                     }
                 }
                 .padding(12)
-                .background(Color.yellow.opacity(0.15))
+                .glassEffect(.regular.tint(.yellow), in: RoundedRectangle(cornerRadius: 12))
             }
 
             HStack {
@@ -49,6 +52,7 @@ struct ChatView: View {
                     draft = ""
                     Task { await chatEngine.send(text) }
                 }
+                .buttonStyle(.glassProminent)
                 .disabled(draft.isEmpty || chatEngine.isProcessing)
             }
             .padding(12)
