@@ -14,8 +14,10 @@ struct SettingsView: View {
             Section("구글 계정") {
                 if environment.isSignedIn {
                     Button("연결 해제", role: .destructive, action: onSignOutTapped)
+                        .buttonStyle(.glass)
                 } else {
                     Button("구글 캘린더 연결", action: onSignInTapped)
+                        .buttonStyle(.glassProminent)
                 }
             }
 
