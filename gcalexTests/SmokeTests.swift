@@ -3,6 +3,6 @@ import Testing
 
 struct SmokeTests {
     @Test @MainActor func rootViewBuilds() {
-        _ = RootView()
+        _ = RootView(environment: AppEnvironment())
     }
 }

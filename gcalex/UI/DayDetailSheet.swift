@@ -45,5 +45,15 @@ struct DayDetailSheet: View {
 
             ChatView(chatEngine: chatEngine)
         }
+        .onDisappear {
+            // If the sheet is dismissed while a destructive-action confirmation
+            // is still pending, resolve it as cancelled. Otherwise the stored
+            // continuation is never resumed: the underlying `Tool.call` awaits
+            // forever, `ChatEngine.isProcessing` stays `true`, and every later
+            // `send(_:)` becomes a silent no-op.
+            if chatEngine.confirmationCenter.pendingRequest != nil {
+                chatEngine.confirmationCenter.resolve(false)
+            }
+        }
     }
 }

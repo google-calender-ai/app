@@ -103,7 +103,7 @@ final class GoogleCalendarService: GoogleCalendarServicing, Sendable {
     private static func toCalendarEvent(_ item: GoogleEventItem) -> CalendarEvent {
         CalendarEvent(
             id: item.id,
-            title: item.summary,
+            title: item.summary ?? "(제목 없음)",
             startDate: resolveDate(item.start),
             endDate: resolveDate(item.end)
         )
@@ -133,7 +133,11 @@ private struct GoogleEventsResponse: Decodable {
 
 private struct GoogleEventItem: Codable {
     let id: String
-    let summary: String
+    // Optional: Google omits `summary` entirely for events with no title
+    // (common on imported/holiday/subscribed calendars). A non-optional field
+    // would throw during decode and fail the ENTIRE `listEvents` call over one
+    // untitled event.
+    let summary: String?
     let start: GoogleEventDateTime
     let end: GoogleEventDateTime
 }

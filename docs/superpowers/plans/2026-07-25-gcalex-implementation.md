@@ -72,7 +72,12 @@ generation, `xcodebuild` for build/test from the CLI.
 5. Create an **OAuth Client ID** of type "iOS". Bundle ID:
    `com.gsw226.gcalex`. Note the generated **Client ID**
    (`XXXX.apps.googleusercontent.com`) and its **reversed form**
-   (`com.googleusercontent.apps.XXXX`) — you'll need both in Step 4 below.
+   (`com.googleusercontent.apps.XXXX`) — you'll need both in Step 1 below.
+   Substitute the plain Client ID into the `GIDClientID` placeholder (the
+   GoogleSignIn SDK auto-reads it from Info.plist to build its active
+   configuration), and the reversed form into the `CFBundleURLTypes` URL
+   scheme placeholder (which only registers the OAuth redirect scheme, not
+   the client ID).
 
 - [ ] **Step 1: Write `project.yml`**
 
@@ -95,6 +100,7 @@ targets:
       path: gcalex/Resources/Info.plist
       properties:
         UILaunchScreen: {}
+        GIDClientID: "GIDCLIENTID-PLACEHOLDER-REPLACE-ME.apps.googleusercontent.com"
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - "REVERSED_CLIENT_ID_PLACEHOLDER"
@@ -123,9 +129,13 @@ targets:
 
 Replace `REVERSED_CLIENT_ID_PLACEHOLDER` with the reversed client ID you
 noted in the manual prerequisite (e.g.
-`com.googleusercontent.apps.123456-abc`). This is a one-time literal
-substitution, not a code placeholder — the value comes from your own Google
-Cloud project and cannot be known ahead of time.
+`com.googleusercontent.apps.123456-abc`), and
+`GIDCLIENTID-PLACEHOLDER-REPLACE-ME.apps.googleusercontent.com` with the
+plain (non-reversed) Client ID (e.g. `123456-abc.apps.googleusercontent.com`).
+Both are one-time literal substitutions, not code placeholders — the values
+come from your own Google Cloud project and cannot be known ahead of time.
+The GoogleSignIn SDK reads `GIDClientID` from Info.plist on first use to
+build its active configuration, so no `GIDConfiguration` is set in code.
 
 - [ ] **Step 2: Write `gcalex/Resources/Info.plist`**
 

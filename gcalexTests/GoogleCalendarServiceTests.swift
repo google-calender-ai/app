@@ -120,5 +120,31 @@ struct GoogleCalendarServiceTests {
 
         #expect(events.first?.id == "evt-holiday")
         #expect(events.first?.title == "공휴일")
+        // Assert the all-day `date` string actually parsed to the right day,
+        // not the `Date()` "now" fallback (which would still pass id/title).
+        let expectedDay = Calendar.current.date(from: DateComponents(year: 2026, month: 7, day: 25))!
+        #expect(Calendar.current.isDate(events.first!.startDate, inSameDayAs: expectedDay))
+    }
+
+    @Test func listEventsDefaultsMissingSummaryToFallbackTitle() async throws {
+        let mock = MockHTTPClient()
+        mock.nextData = """
+        {
+          "items": [
+            {
+              "id": "evt-untitled",
+              "start": { "dateTime": "2026-07-25T10:00:00+09:00" },
+              "end": { "dateTime": "2026-07-25T11:00:00+09:00" }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let service = GoogleCalendarService(tokenProvider: { "t" }, httpClient: mock)
+        let events = try await service.listEvents(from: Date(), to: Date())
+
+        #expect(events.count == 1)
+        #expect(events.first?.id == "evt-untitled")
+        #expect(events.first?.title == "(제목 없음)")
     }
 }

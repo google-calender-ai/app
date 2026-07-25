@@ -1,19 +1,24 @@
 import Foundation
-// `BackgroundTasks` is an unaudited ObjC framework: its Swift overlay has
-// no Sendable annotations at all (verified against the SDK header/apinotes
-// — no `NS_SWIFT_SENDABLE`/`swift_attr` markers anywhere on `BGTask`,
-// `BGAppRefreshTask`, or `BGTaskScheduler.register`'s `launchHandler`).
-// `@preconcurrency` is the sanctioned way to interop with such a module:
-// it tells the compiler this framework predates concurrency checking, so
-// Sendable-related diagnostics about its types are treated leniently
-// instead of hard errors. This is not a stand-in for `@unchecked
-// Sendable` on our own code — nothing in this file claims a type it owns
-// is Sendable when it isn't; it only relaxes how the *unaudited framework
-// boundary* is checked, exactly as the framework's own header structure
-// (or lack of annotations) calls for.
+// `BackgroundTasks` is an unaudited ObjC framework: its Swift overlay has no
+// Sendable annotations at all. `@preconcurrency` is the sanctioned way to
+// interop with such a module — it tells the compiler this framework predates
+// concurrency checking, so Sendable-related diagnostics about its types
+// (`BGTaskScheduler`, `BGAppRefreshTaskRequest`) are treated leniently instead
+// of hard errors. This is not a stand-in for `@unchecked Sendable` on our own
+// code — nothing here claims a type it owns is Sendable when it isn't; it only
+// relaxes how the *unaudited framework boundary* is checked. Handler
+// registration itself no longer happens here: it's done via SwiftUI's
+// `.backgroundTask(.appRefresh:)` scene modifier in `GcalexApp`, which registers
+// before launch finishes (as `BGTaskScheduler` requires).
 @preconcurrency import BackgroundTasks
 
-final class BackgroundRefreshCoordinator {
+/// Genuinely `Sendable` (not `@unchecked`): all three stored properties are
+/// immutable `let`s of `Sendable` types — `EventStore` (an actor),
+/// `NotificationScheduler` (declared `Sendable`), and a `@Sendable` closure — so
+/// there is no mutable state for concurrent callers to race on. Being `Sendable`
+/// lets `GcalexApp`'s `@Sendable` `.backgroundTask` closure capture this
+/// coordinator directly instead of the non-`Sendable` `AppEnvironment`.
+final class BackgroundRefreshCoordinator: Sendable {
     static let taskIdentifier = "com.gsw226.gcalex.refresh"
 
     private let eventStore: EventStore
@@ -30,61 +35,52 @@ final class BackgroundRefreshCoordinator {
         self.notificationTimeProvider = notificationTimeProvider
     }
 
-    /// Registers the background refresh launch handler. Must be called
-    /// before the app finishes launching (per `BGTaskScheduler`'s
-    /// contract), and only once per task identifier for the lifetime of
-    /// the process.
-    func register() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskIdentifier, using: nil) { [weak self] task in
-            guard let self, let refreshTask = task as? BGAppRefreshTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            self.handle(refreshTask)
-        }
-    }
-
     /// Submits the next background refresh request, roughly 4 hours out.
-    /// Called at launch (after `register()`) and again at the start of
-    /// every launch-handler invocation, to keep the refresh chain going.
+    /// Called on a foreground launch and again at the start of every
+    /// background-refresh cycle, to keep the refresh chain going.
     func scheduleNextRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 4 * 60 * 60)
-        try? BGTaskScheduler.shared.submit(request)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            // Non-fatal: iOS refuses submissions in some states (Low Power Mode,
+            // too many pending requests, background refresh disabled). We simply
+            // don't get a background wake this cycle; the next foreground launch
+            // re-submits. Logging (rather than swallowing) keeps it debuggable.
+            print("gcalex: BGTaskScheduler.submit failed: \(error)")
+        }
     }
 
-    private func handle(_ task: BGAppRefreshTask) {
+    /// The full background-refresh cycle, invoked from `GcalexApp`'s
+    /// `.backgroundTask(.appRefresh:)` scene handler: queue the next background
+    /// attempt, pull the latest today/tomorrow events over the network, then
+    /// (re)schedule the daily-agenda notification from that fresh data.
+    func performBackgroundRefresh() async {
         scheduleNextRefresh()
+        let calendar = Calendar.current
+        let today = Date()
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        try? await eventStore.refresh(from: today, to: tomorrow)
+        await rescheduleNotificationFromCache()
+    }
 
-        // Read the stored properties into locals before crossing into the
-        // unstructured `Task` below. `eventStore` (an actor) and
-        // `notificationScheduler`/`notificationTimeProvider` (genuinely
-        // `Sendable`, see their own declarations) don't strictly need
-        // this for safety, but it keeps the closure from capturing `self`
-        // (a plain, non-Sendable class) implicitly through property
-        // access, which is its own, separate Sendable violation.
-        let eventStore = eventStore
-        let notificationScheduler = notificationScheduler
-        let notificationTimeProvider = notificationTimeProvider
-
-        let refreshOperation = Task {
-            do {
-                let calendar = Calendar.current
-                let today = Date()
-                let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-                try await eventStore.refresh(from: today, to: tomorrow)
-                let todayEvents = await eventStore.events(on: today)
-                let tomorrowEvents = await eventStore.events(on: tomorrow)
-                await notificationScheduler.scheduleDailyAgenda(
-                    at: notificationTimeProvider(),
-                    todayEvents: todayEvents,
-                    tomorrowEvents: tomorrowEvents
-                )
-                task.setTaskCompleted(success: true)
-            } catch {
-                task.setTaskCompleted(success: false)
-            }
-        }
-        task.expirationHandler = { refreshOperation.cancel() }
+    /// (Re)schedules the daily-agenda notification from whatever events are
+    /// already cached in `eventStore` — no network fetch. Called on a normal
+    /// foreground launch right after the month refresh (so a fresh install gets
+    /// its first notification scheduled immediately from current data, rather
+    /// than only after some future background task fires) and whenever the user
+    /// changes the notification time in Settings.
+    func rescheduleNotificationFromCache() async {
+        let calendar = Calendar.current
+        let today = Date()
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let todayEvents = await eventStore.events(on: today)
+        let tomorrowEvents = await eventStore.events(on: tomorrow)
+        await notificationScheduler.scheduleDailyAgenda(
+            at: notificationTimeProvider(),
+            todayEvents: todayEvents,
+            tomorrowEvents: tomorrowEvents
+        )
     }
 }

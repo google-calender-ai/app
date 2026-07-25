@@ -18,6 +18,7 @@ targets:
         CFBundleDevelopmentRegion: ko
         NSUserNotificationsUsageDescription: "오늘과 내일의 일정을 매일 알려드리기 위해 알림 권한이 필요합니다."
         UILaunchScreen: {}
+        GIDClientID: "GIDCLIENTID-PLACEHOLDER-REPLACE-ME.apps.googleusercontent.com"
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - "com.googleusercontent.apps.PLACEHOLDER-REPLACE-ME"

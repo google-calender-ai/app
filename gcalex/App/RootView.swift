@@ -57,11 +57,33 @@ final class AppEnvironment {
     let notificationScheduler: NotificationScheduler
     let backgroundRefreshCoordinator: BackgroundRefreshCoordinator
 
+    /// Observable mirror of `authService.isSignedIn`. `authService.isSignedIn`
+    /// is a computed property over `GIDSignIn.sharedInstance.currentUser` with
+    /// no observability, so the UI can't re-render when sign-in state changes.
+    /// This `@Observable` property is updated right after every
+    /// sign-in/out/restore call so `SettingsView` can track it.
+    var isSignedIn: Bool = false
+
     var notificationHour: Int {
-        didSet { UserDefaults.standard.set(notificationHour, forKey: NotificationTimeDefaults.hourKey) }
+        didSet {
+            UserDefaults.standard.set(notificationHour, forKey: NotificationTimeDefaults.hourKey)
+            rescheduleNotification()
+        }
     }
     var notificationMinute: Int {
-        didSet { UserDefaults.standard.set(notificationMinute, forKey: NotificationTimeDefaults.minuteKey) }
+        didSet {
+            UserDefaults.standard.set(notificationMinute, forKey: NotificationTimeDefaults.minuteKey)
+            rescheduleNotification()
+        }
+    }
+
+    /// Re-schedules the daily-agenda notification at the newly-chosen time using
+    /// currently-cached events, so a Settings time change takes effect
+    /// immediately instead of waiting for the next background refresh. The
+    /// time-provider closure reads `UserDefaults`, which the `didSet`s above have
+    /// already updated by the time this runs.
+    private func rescheduleNotification() {
+        Task { await backgroundRefreshCoordinator.rescheduleNotificationFromCache() }
     }
 
     init() {
@@ -96,15 +118,21 @@ final class AppEnvironment {
 }
 
 struct RootView: View {
-    @State private var environment = AppEnvironment()
+    @Bindable var environment: AppEnvironment
     @State private var selectedDate: Date?
     @State private var eventDates: Set<DateComponents> = []
     @State private var eventsBySelectedDate: [CalendarEvent] = []
 
+    /// The single source of truth for turning `Date`s into `DateComponents`.
+    /// `CalendarMonthView`'s `UICalendarView` is configured with a Gregorian
+    /// calendar, so `eventDates` (the decoration keys) must be built with the
+    /// exact same calendar or `Set.contains` can spuriously miss a day.
+    private let displayCalendar = Calendar(identifier: .gregorian)
+
     var body: some View {
         NavigationStack {
             VStack {
-                CalendarMonthView(eventDates: eventDates) { date in
+                CalendarMonthView(calendar: displayCalendar, eventDates: eventDates) { date in
                     selectedDate = date
                     Task { await loadEvents(for: date) }
                 }
@@ -114,11 +142,12 @@ struct RootView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink("설정") {
                         SettingsView(
-                            authService: environment.authService,
-                            notificationHour: $environment.notificationHour,
-                            notificationMinute: $environment.notificationMinute,
+                            environment: environment,
                             onSignInTapped: signIn,
-                            onSignOutTapped: { environment.authService.signOut() }
+                            onSignOutTapped: {
+                                environment.authService.signOut()
+                                environment.isSignedIn = environment.authService.isSignedIn
+                            }
                         )
                     }
                 }
@@ -132,10 +161,14 @@ struct RootView: View {
         }
         .task {
             await environment.authService.restorePreviousSignIn()
-            environment.backgroundRefreshCoordinator.register()
+            environment.isSignedIn = environment.authService.isSignedIn
             environment.backgroundRefreshCoordinator.scheduleNextRefresh()
             _ = try? await environment.notificationScheduler.requestAuthorization()
             await refreshMonth()
+            // Schedule the first daily-agenda notification immediately from the
+            // freshly-refreshed cache, so a fresh install doesn't have to wait
+            // for a future background task (which may fire hours away, or never).
+            await environment.backgroundRefreshCoordinator.rescheduleNotificationFromCache()
         }
     }
 
@@ -144,12 +177,13 @@ struct RootView: View {
               let root = scene.windows.first?.rootViewController else { return }
         Task {
             try? await environment.authService.signIn(presentingViewController: root)
+            environment.isSignedIn = environment.authService.isSignedIn
             await refreshMonth()
         }
     }
 
     private func refreshMonth() async {
-        let calendar = Calendar.current
+        let calendar = displayCalendar
         let start = calendar.date(byAdding: .day, value: -7, to: Date())!
         let end = calendar.date(byAdding: .day, value: 30, to: Date())!
         try? await environment.eventStore.refresh(from: start, to: end)
