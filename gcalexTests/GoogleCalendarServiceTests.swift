@@ -2,7 +2,8 @@ import Testing
 import Foundation
 @testable import gcalex
 
-final class MockHTTPClient: HTTPClient {
+// @unchecked Sendable: configured synchronously before use, never mutated concurrently — safe as a test double.
+final class MockHTTPClient: HTTPClient, @unchecked Sendable {
     var nextData: Data = Data()
     var nextStatusCode: Int = 200
     private(set) var lastRequest: URLRequest?

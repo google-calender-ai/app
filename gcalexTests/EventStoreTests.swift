@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import gcalex
 
+// @unchecked Sendable: configured before use and never mutated concurrently during a test — safe as a test double.
 final class StubCalendarService: GoogleCalendarServicing, @unchecked Sendable {
     var eventsToReturn: [CalendarEvent] = []
     private(set) var lastRange: (from: Date, to: Date)?

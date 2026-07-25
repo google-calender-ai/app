@@ -12,18 +12,18 @@ enum CalendarServiceError: Error, Equatable {
     case decodingFailed
 }
 
-final class GoogleCalendarService: GoogleCalendarServicing, @unchecked Sendable {
-    private let tokenProvider: () async throws -> String
+final class GoogleCalendarService: GoogleCalendarServicing, Sendable {
+    private let tokenProvider: @Sendable () async throws -> String
     private let httpClient: HTTPClient
     private let baseURL = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
-    private let isoFormatter = ISO8601DateFormatter()
 
-    init(tokenProvider: @escaping () async throws -> String, httpClient: HTTPClient = URLSession.shared) {
+    init(tokenProvider: @escaping @Sendable () async throws -> String, httpClient: HTTPClient = URLSession.shared) {
         self.tokenProvider = tokenProvider
         self.httpClient = httpClient
     }
 
     func listEvents(from startDate: Date, to endDate: Date) async throws -> [CalendarEvent] {
+        let isoFormatter = ISO8601DateFormatter()
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
@@ -40,6 +40,7 @@ final class GoogleCalendarService: GoogleCalendarServicing, @unchecked Sendable 
     }
 
     func createEvent(title: String, startDate: Date, endDate: Date) async throws -> CalendarEvent {
+        let isoFormatter = ISO8601DateFormatter()
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -53,6 +54,7 @@ final class GoogleCalendarService: GoogleCalendarServicing, @unchecked Sendable 
     }
 
     func updateEvent(id: String, title: String, startDate: Date, endDate: Date) async throws -> CalendarEvent {
+        let isoFormatter = ISO8601DateFormatter()
         var request = URLRequest(url: baseURL.appendingPathComponent(id))
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
