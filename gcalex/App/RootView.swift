@@ -124,9 +124,10 @@ struct RootView: View {
     @State private var eventsBySelectedDate: [CalendarEvent] = []
 
     /// The single source of truth for turning `Date`s into `DateComponents`.
-    /// `CalendarMonthView`'s `UICalendarView` is configured with a Gregorian
-    /// calendar, so `eventDates` (the decoration keys) must be built with the
-    /// exact same calendar or `Set.contains` can spuriously miss a day.
+    /// `CalendarMonthView`'s `dayCell(for:)` looks up each day via
+    /// `eventDates.contains(calendar.dateComponents([.year, .month, .day], from: date))`,
+    /// so `eventDates` must be built with the exact same `Calendar` value or
+    /// `Set.contains` can spuriously miss a day.
     private let displayCalendar = Calendar(identifier: .gregorian)
 
     var body: some View {
@@ -157,6 +158,7 @@ struct RootView: View {
                 set: { selectedDate = $0?.date }
             )) { identified in
                 DayDetailSheet(date: identified.date, events: eventsBySelectedDate, chatEngine: environment.chatEngine)
+                    .presentationBackground(.clear)
             }
         }
         .task {
