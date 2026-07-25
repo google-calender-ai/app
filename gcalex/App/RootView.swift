@@ -1,0 +1,168 @@
+import SwiftUI
+import UIKit
+
+/// Storage for the user's chosen daily-notification time, shared between
+/// `AppEnvironment` (which exposes it to `SettingsView` as `@MainActor`
+/// `@Observable` state) and `BackgroundRefreshCoordinator`'s
+/// `notificationTimeProvider` closure.
+///
+/// `BackgroundRefreshCoordinator` requires that closure to be a *synchronous*
+/// `@Sendable () -> DateComponents` (see `App/BackgroundRefreshCoordinator.swift`),
+/// and it is invoked from inside a `BGTaskScheduler` launch handler, which runs
+/// off the main actor with no opportunity to `await` onto it. That means the
+/// closure cannot read `AppEnvironment`'s `@MainActor`-isolated
+/// `notificationHour`/`notificationMinute` properties directly — doing so would
+/// be a main-actor isolation violation, not merely a style choice. Routing both
+/// the UI-facing properties and the background-read closure through
+/// `UserDefaults` (a thread-safe, `Sendable`-friendly API) sidesteps that
+/// conflict entirely and, as a side benefit, persists the user's chosen time
+/// across app relaunches, which an in-memory-only property would not.
+private enum NotificationTimeDefaults {
+    static let hourKey = "gcalex.notificationHour"
+    static let minuteKey = "gcalex.notificationMinute"
+    static let defaultHour = 8
+    static let defaultMinute = 0
+
+    static func read() -> DateComponents {
+        let defaults = UserDefaults.standard
+        let hour = defaults.object(forKey: hourKey) as? Int ?? defaultHour
+        let minute = defaults.object(forKey: minuteKey) as? Int ?? defaultMinute
+        return DateComponents(hour: hour, minute: minute)
+    }
+}
+
+/// Owns every service/store/coordinator Tasks 2–10 produced and wires them
+/// together for the UI layer.
+///
+/// **Actor isolation:** pinned to `@MainActor`, because its `init()` must
+/// construct `ConfirmationCenter()` and `ChatEngine(...)` synchronously —
+/// both are `@MainActor`-isolated types (see their own files), and this
+/// project's `SWIFT_VERSION` is 6.0 with no project-wide default actor
+/// isolation configured, so a plain `nonisolated` initializer could not call
+/// their initializers without an `await` hop. Marking the whole class
+/// `@MainActor` also matches how it's used: it's held as `@State` inside
+/// `RootView`, a SwiftUI `View` whose `body` — and, by the compiler's
+/// protocol-conformance isolation inference, the whole conforming type — is
+/// already main-actor-isolated. `AppEnvironment` itself is never made
+/// `Sendable` and never needs to be: it's never sent across an isolation
+/// boundary as a value, only read from the main actor.
+@MainActor
+@Observable
+final class AppEnvironment {
+    let authService: AuthServicing
+    let calendarService: GoogleCalendarServicing
+    let eventStore: EventStore
+    let confirmationCenter: ConfirmationCenter
+    let chatEngine: ChatEngine
+    let notificationScheduler: NotificationScheduler
+    let backgroundRefreshCoordinator: BackgroundRefreshCoordinator
+
+    var notificationHour: Int {
+        didSet { UserDefaults.standard.set(notificationHour, forKey: NotificationTimeDefaults.hourKey) }
+    }
+    var notificationMinute: Int {
+        didSet { UserDefaults.standard.set(notificationMinute, forKey: NotificationTimeDefaults.minuteKey) }
+    }
+
+    init() {
+        let authService = GoogleAuthService()
+        let calendarService = GoogleCalendarService(tokenProvider: authService.accessToken)
+        let eventStore = EventStore(calendarService: calendarService)
+        let confirmationCenter = ConfirmationCenter()
+        let chatEngine = ChatEngine(
+            eventStore: eventStore,
+            calendarService: calendarService,
+            confirmationCenter: confirmationCenter
+        )
+        let notificationScheduler = NotificationScheduler()
+
+        self.authService = authService
+        self.calendarService = calendarService
+        self.eventStore = eventStore
+        self.confirmationCenter = confirmationCenter
+        self.chatEngine = chatEngine
+        self.notificationScheduler = notificationScheduler
+
+        let initialTime = NotificationTimeDefaults.read()
+        self.notificationHour = initialTime.hour ?? NotificationTimeDefaults.defaultHour
+        self.notificationMinute = initialTime.minute ?? NotificationTimeDefaults.defaultMinute
+
+        self.backgroundRefreshCoordinator = BackgroundRefreshCoordinator(
+            eventStore: eventStore,
+            notificationScheduler: notificationScheduler,
+            notificationTimeProvider: { NotificationTimeDefaults.read() }
+        )
+    }
+}
+
+struct RootView: View {
+    @State private var environment = AppEnvironment()
+    @State private var selectedDate: Date?
+    @State private var eventDates: Set<DateComponents> = []
+    @State private var eventsBySelectedDate: [CalendarEvent] = []
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                CalendarMonthView(eventDates: eventDates) { date in
+                    selectedDate = date
+                    Task { await loadEvents(for: date) }
+                }
+            }
+            .navigationTitle("gcalex")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink("설정") {
+                        SettingsView(
+                            authService: environment.authService,
+                            notificationHour: $environment.notificationHour,
+                            notificationMinute: $environment.notificationMinute,
+                            onSignInTapped: signIn,
+                            onSignOutTapped: { environment.authService.signOut() }
+                        )
+                    }
+                }
+            }
+            .sheet(item: Binding(
+                get: { selectedDate.map { IdentifiedDate(date: $0) } },
+                set: { selectedDate = $0?.date }
+            )) { identified in
+                DayDetailSheet(date: identified.date, events: eventsBySelectedDate, chatEngine: environment.chatEngine)
+            }
+        }
+        .task {
+            await environment.authService.restorePreviousSignIn()
+            environment.backgroundRefreshCoordinator.register()
+            environment.backgroundRefreshCoordinator.scheduleNextRefresh()
+            _ = try? await environment.notificationScheduler.requestAuthorization()
+            await refreshMonth()
+        }
+    }
+
+    private func signIn() {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first?.rootViewController else { return }
+        Task {
+            try? await environment.authService.signIn(presentingViewController: root)
+            await refreshMonth()
+        }
+    }
+
+    private func refreshMonth() async {
+        let calendar = Calendar.current
+        let start = calendar.date(byAdding: .day, value: -7, to: Date())!
+        let end = calendar.date(byAdding: .day, value: 30, to: Date())!
+        try? await environment.eventStore.refresh(from: start, to: end)
+        let all = await environment.eventStore.allEvents
+        eventDates = Set(all.map { calendar.dateComponents([.year, .month, .day], from: $0.startDate) })
+    }
+
+    private func loadEvents(for date: Date) async {
+        eventsBySelectedDate = await environment.eventStore.events(on: date)
+    }
+}
+
+private struct IdentifiedDate: Identifiable {
+    let date: Date
+    var id: TimeInterval { date.timeIntervalSince1970 }
+}

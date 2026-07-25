@@ -2,7 +2,13 @@ import Foundation
 import UIKit
 import GoogleSignIn
 
-protocol AuthServicing: AnyObject {
+/// `Sendable`-constrained (Task 11) so a bound `accessToken` method value —
+/// e.g. `authService.accessToken`, used by `AppEnvironment` to build
+/// `GoogleCalendarService`'s `@Sendable () async throws -> String`
+/// token-provider closure — can itself be treated as `@Sendable` under
+/// Swift 6 strict concurrency. See `GoogleAuthService`'s own conformance
+/// below for why this is sound and not `@unchecked`.
+protocol AuthServicing: AnyObject, Sendable {
     var isSignedIn: Bool { get }
     func restorePreviousSignIn() async
     func signIn(presentingViewController: UIViewController) async throws
@@ -14,7 +20,11 @@ enum AuthError: Error, Equatable {
     case notSignedIn
 }
 
-final class GoogleAuthService: AuthServicing {
+/// Genuinely `Sendable` (not `@unchecked`): `GoogleAuthService` has no
+/// stored properties at all — every method simply delegates to
+/// `GIDSignIn.sharedInstance`, so there is no mutable state on this type for
+/// concurrent callers to race on, and the compiler can verify that directly.
+final class GoogleAuthService: AuthServicing, Sendable {
     static let calendarScope = "https://www.googleapis.com/auth/calendar"
 
     var isSignedIn: Bool {

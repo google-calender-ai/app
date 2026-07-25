@@ -5,7 +5,7 @@ import GoogleSignIn
 struct GcalexApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }
