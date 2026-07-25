@@ -1,0 +1,45 @@
+name: gcalex
+options:
+  bundleIdPrefix: com.gsw226
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 8.0.0
+targets:
+  gcalex:
+    type: application
+    platform: iOS
+    sources: [gcalex]
+    info:
+      path: gcalex/Resources/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: ko
+        NSUserNotificationsUsageDescription: "오늘과 내일의 일정을 매일 알려드리기 위해 알림 권한이 필요합니다."
+        UILaunchScreen: {}
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - "com.googleusercontent.apps.PLACEHOLDER-REPLACE-ME"
+        BGTaskSchedulerPermittedIdentifiers:
+          - "com.gsw226.gcalex.refresh"
+        UIBackgroundModes:
+          - fetch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gsw226.gcalex
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    dependencies:
+      - package: GoogleSignIn
+        product: GoogleSignIn
+  gcalexTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [gcalexTests]
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: gcalex
