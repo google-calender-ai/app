@@ -185,17 +185,18 @@ import Testing
 @testable import gcalex
 
 struct SmokeTests {
-    @Test func contentViewBuilds() {
-        let view = ContentView()
-        #expect(view.body is Text == false || true)
+    @Test func contentViewInstantiates() {
+        _ = ContentView()
     }
 }
 ```
 
-(This test only exists to prove the test target compiles and links against
-the app target — later tasks replace it with real coverage. It is not a
-placeholder: it runs and passes, and later tasks add tests alongside it
-rather than depending on it.)
+This test only exists to prove the test target compiles and links against
+the app target — later tasks replace it with real coverage. It deliberately
+has no `#expect` assertion rather than a tautological one: a passing
+instantiation with no thrown error is the entire signal this test is meant
+to carry, and dressing that up as a fake assertion would be worse, not
+better. Later tasks add tests alongside it rather than depending on it.
 
 - [ ] **Step 6: Generate the Xcode project and build**
 
