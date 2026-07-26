@@ -3,57 +3,19 @@ import SwiftUI
 struct CalendarMonthView: View {
     let calendar: Calendar
     let eventDates: Set<DateComponents>
+    @Binding var visibleMonth: Date
     let onSelect: (Date) -> Void
 
-    @State private var visibleMonth: Date
-
-    init(calendar: Calendar, eventDates: Set<DateComponents>, onSelect: @escaping (Date) -> Void) {
-        self.calendar = calendar
-        self.eventDates = eventDates
-        self.onSelect = onSelect
-        _visibleMonth = State(initialValue: Date())
-    }
-
     private static let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
-
-    private var monthTitleFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "yyyy년 M월"
-        return formatter
-    }
+    private static let swipeThreshold: CGFloat = 50
 
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Button {
-                    changeMonth(by: -1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.glass)
-
-                Spacer()
-                Text(monthTitleFormatter.string(from: visibleMonth))
-                    .font(.headline)
-                Spacer()
-
-                Button {
-                    changeMonth(by: 1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.glass)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .glassEffect(in: RoundedRectangle(cornerRadius: 20))
-
-            HStack {
                 ForEach(Array(Self.weekdaySymbols.enumerated()), id: \.offset) { index, symbol in
                     Text(symbol)
                         .font(.caption)
+                        .fontWeight(.medium)
                         .foregroundStyle(WeekdayColor.color(forWeekday: index + 1))
                         .frame(maxWidth: .infinity)
                 }
@@ -64,11 +26,21 @@ struct CalendarMonthView: View {
                     if let date {
                         dayCell(for: date)
                     } else {
-                        Color.clear.frame(height: 36)
+                        Color.clear.frame(height: 44)
                     }
                 }
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    if value.translation.width <= -Self.swipeThreshold {
+                        changeMonth(by: 1)
+                    } else if value.translation.width >= Self.swipeThreshold {
+                        changeMonth(by: -1)
+                    }
+                }
+        )
     }
 
     private func dayCell(for date: Date) -> some View {
@@ -82,12 +54,12 @@ struct CalendarMonthView: View {
         } label: {
             VStack(spacing: 4) {
                 Text("\(day)")
-                    .font(.body)
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(isToday ? .white : WeekdayColor.color(forWeekday: weekday))
                     .frame(width: 32, height: 32)
                     .background {
                         if isToday {
-                            Circle().fill(Color.blue)
+                            Circle().fill(Color.red)
                         }
                     }
 
@@ -96,7 +68,7 @@ struct CalendarMonthView: View {
                     .frame(width: 4, height: 4)
                     .opacity(hasEvent ? 1 : 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 36)
+            .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.plain)
     }

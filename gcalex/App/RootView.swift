@@ -122,6 +122,7 @@ struct RootView: View {
     @State private var selectedDate: Date?
     @State private var eventDates: Set<DateComponents> = []
     @State private var eventsBySelectedDate: [CalendarEvent] = []
+    @State private var visibleMonth: Date = Date()
 
     /// The single source of truth for turning `Date`s into `DateComponents`.
     /// `CalendarMonthView`'s `dayCell(for:)` looks up each day via
@@ -130,16 +131,43 @@ struct RootView: View {
     /// `Set.contains` can spuriously miss a day.
     private let displayCalendar = Calendar(identifier: .gregorian)
 
+    private var monthTitleFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = displayCalendar
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "yyyy년 M월"
+        return formatter
+    }
+
+    private var isViewingCurrentMonth: Bool {
+        displayCalendar.isDate(visibleMonth, equalTo: Date(), toGranularity: .month)
+    }
+
     var body: some View {
         NavigationStack {
             VStack {
-                CalendarMonthView(calendar: displayCalendar, eventDates: eventDates) { date in
+                CalendarMonthView(calendar: displayCalendar, eventDates: eventDates, visibleMonth: $visibleMonth) { date in
                     selectedDate = date
                     Task { await loadEvents(for: date) }
                 }
             }
-            .navigationTitle("gcalex")
+            .navigationTitle(monthTitleFormatter.string(from: visibleMonth))
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        changeVisibleMonth(by: -1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        changeVisibleMonth(by: 1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink("설정") {
                         SettingsView(
@@ -153,6 +181,19 @@ struct RootView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if !isViewingCurrentMonth {
+                    Button("오늘") {
+                        withAnimation {
+                            visibleMonth = Date()
+                        }
+                    }
+                    .buttonStyle(.glassProminent)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                }
+            }
+            .animation(.default, value: isViewingCurrentMonth)
             .sheet(item: Binding(
                 get: { selectedDate.map { IdentifiedDate(date: $0) } },
                 set: { selectedDate = $0?.date }
@@ -172,6 +213,11 @@ struct RootView: View {
             // for a future background task (which may fire hours away, or never).
             await environment.backgroundRefreshCoordinator.rescheduleNotificationFromCache()
         }
+    }
+
+    private func changeVisibleMonth(by offset: Int) {
+        guard let newMonth = displayCalendar.date(byAdding: .month, value: offset, to: visibleMonth) else { return }
+        visibleMonth = newMonth
     }
 
     private func signIn() {
